@@ -1,0 +1,1397 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>症例タスクボード</title>
+<style>
+  /* ===== 基本デザイン：白〜薄グレー、カード型、角丸、落ち着いた配色 ===== */
+  :root{
+    --bg:#f4f6f8;
+    --card:#ffffff;
+    --line:#e3e8ee;
+    --text:#27313a;
+    --sub:#6b7785;
+    --accent:#3a7ca5;       /* 落ち着いた青 */
+    --accent-d:#2f6585;
+    --ok:#3a9d6a;           /* 完了系の緑 */
+    --warn:#d98324;         /* 今日まで等の橙 */
+    --danger:#c0463b;       /* 期限超過の赤 */
+    --chip:#eef2f6;
+    --shadow:0 1px 3px rgba(20,40,60,.08), 0 1px 2px rgba(20,40,60,.06);
+    --radius:14px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;
+    font-size:16px;line-height:1.6;
+    -webkit-text-size-adjust:100%;
+  }
+  .wrap{max-width:760px;margin:0 auto;padding:0 12px 96px;}
+  /* ヘッダー */
+  header.app{
+    position:sticky;top:0;z-index:20;
+    background:rgba(244,246,248,.92);backdrop-filter:saturate(180%) blur(8px);
+    padding:10px 12px;border-bottom:1px solid var(--line);
+  }
+  .app-row{max-width:760px;margin:0 auto;display:flex;align-items:center;gap:10px;}
+  .app-title{font-size:18px;font-weight:700;margin:0;flex:1;}
+  .back-btn{
+    background:none;border:none;color:var(--accent);font-size:16px;font-weight:600;
+    padding:8px 6px;cursor:pointer;display:flex;align-items:center;gap:4px;
+  }
+  /* バックアップ状態バー（ヘッダー内・常時表示） */
+  #backupBar{border-top:1px solid var(--line);background:#eef2f6;}
+  #backupBar.dirty{background:#fbe9e7;}
+  .backup-inner{max-width:760px;margin:0 auto;display:flex;align-items:center;gap:10px;padding:5px 0;font-size:12px;color:var(--sub);}
+  #backupBar.dirty #backupStatus{color:var(--danger);font-weight:700;}
+  .auto-toggle{display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--sub);white-space:nowrap;}
+  .auto-toggle input{width:16px;height:16px;}
+  .backup-export{border:1px solid var(--line);background:#fff;color:var(--accent);border-radius:8px;padding:4px 10px;font-size:12px;font-weight:600;cursor:pointer;}
+  #backupBar.dirty .backup-export{border-color:var(--danger);color:var(--danger);}
+  /* ボタン */
+  button{font-family:inherit;}
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    border:1px solid var(--line);background:var(--card);color:var(--text);
+    border-radius:12px;padding:12px 14px;font-size:15px;font-weight:600;
+    cursor:pointer;min-height:46px;
+  }
+  .btn:active{transform:scale(.98);}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .btn.primary:active{background:var(--accent-d);}
+  .btn.danger{background:#fff;border-color:var(--danger);color:var(--danger);}
+  .btn.ghost{background:transparent;border-color:transparent;color:var(--accent);}
+  .btn.sm{min-height:38px;padding:8px 10px;font-size:13px;border-radius:10px;}
+  .btn.block{width:100%;}
+  /* ツールバー */
+  .toolbar{display:flex;flex-direction:column;gap:10px;margin:12px 0;}
+  .toolbar .top-actions{display:flex;gap:8px;flex-wrap:wrap;}
+  .toolbar .top-actions .btn{flex:1;min-width:120px;}
+  .sort-row{display:flex;align-items:center;gap:8px;}
+  .sort-row label{font-size:13px;color:var(--sub);white-space:nowrap;}
+  select.field{
+    width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:12px;
+    background:var(--card);font-size:15px;color:var(--text);min-height:46px;
+  }
+  /* フィルターチップ（横スクロール） */
+  .filter-scroll{display:flex;gap:8px;overflow-x:auto;padding:4px 0 6px;-webkit-overflow-scrolling:touch;}
+  .filter-scroll::-webkit-scrollbar{display:none;}
+  .fchip{
+    flex:0 0 auto;border:1px solid var(--line);background:var(--card);color:var(--sub);
+    border-radius:999px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;
+  }
+  .fchip.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .fchip .cnt{opacity:.8;font-weight:700;margin-left:4px;}
+  /* 症例カード */
+  .case-card{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:var(--shadow);padding:14px;margin-bottom:12px;cursor:pointer;position:relative;
+    border-left:5px solid var(--line);
+  }
+  .case-card:active{transform:scale(.995);}
+  .case-card.lv-over{border-left-color:var(--danger);}
+  .case-card.lv-today{border-left-color:var(--warn);}
+  .case-card.lv-soon{border-left-color:var(--accent);}
+  .case-card.lv-done{border-left-color:var(--ok);}
+  .cc-head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;}
+  .cc-date{font-size:13px;color:var(--sub);font-weight:600;}
+  .cc-karte{font-size:12px;color:var(--sub);background:var(--chip);border-radius:6px;padding:1px 6px;}
+  .cc-name{font-size:17px;font-weight:700;}
+  .cc-diag{font-size:14px;color:var(--text);}
+  .cc-type{font-size:12px;color:var(--sub);}
+  .cc-line{margin-top:6px;font-size:13px;color:var(--sub);}
+  .cc-line b{color:var(--text);font-weight:600;}
+  .cc-due{margin-top:6px;font-size:13px;}
+  .cc-rep{margin-top:6px;font-size:13px;color:var(--text);}
+  .cc-rep .t{color:var(--sub);}
+  /* タグ */
+  .tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;}
+  .tag{font-size:12px;font-weight:700;border-radius:999px;padding:3px 10px;background:var(--chip);color:var(--sub);}
+  .tag.over{background:#fbe9e7;color:var(--danger);}
+  .tag.today{background:#fdf0e1;color:var(--warn);}
+  .tag.done{background:#e7f4ec;color:var(--ok);}
+  .tag.todo{background:#eaf1f6;color:var(--accent-d);}
+  /* 締め切りステータス色 */
+  .due-over{color:var(--danger);font-weight:700;}
+  .due-today{color:var(--warn);font-weight:700;}
+  .due-tom{color:var(--warn);font-weight:600;}
+  .due-soon{color:var(--accent-d);font-weight:600;}
+  .due-none{color:var(--sub);}
+  /* 詳細：基本情報 */
+  .panel{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:var(--shadow);padding:16px;margin-bottom:14px;
+  }
+  .panel h2{font-size:15px;margin:0 0 12px;display:flex;align-items:center;gap:8px;}
+  .panel h2 .count{font-size:12px;color:var(--sub);font-weight:600;}
+  .field-grid{display:flex;flex-direction:column;gap:12px;}
+  .field-grid label{font-size:13px;color:var(--sub);font-weight:600;display:block;margin-bottom:4px;}
+  input.field,textarea.field{
+    width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:12px;
+    background:#fcfdfe;font-size:15px;color:var(--text);min-height:46px;font-family:inherit;
+  }
+  textarea.field{min-height:90px;resize:vertical;line-height:1.6;}
+  .two-col{display:flex;gap:10px;}
+  .two-col > div{flex:1;}
+  /* タスク行 */
+  .task{
+    border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:10px;background:#fff;
+  }
+  .task.done-row{background:#f6f9f7;}
+  .task-main{display:flex;align-items:flex-start;gap:10px;}
+  .check{
+    flex:0 0 auto;width:30px;height:30px;border-radius:9px;border:2px solid var(--line);
+    background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;margin-top:1px;
+  }
+  .check.on{background:var(--ok);border-color:var(--ok);color:#fff;}
+  .check svg{width:16px;height:16px;display:none;}
+  .check.on svg{display:block;}
+  .task-body{flex:1;min-width:0;}
+  .task-title{font-size:15px;font-weight:600;word-break:break-word;}
+  .task.done-row .task-title{text-decoration:line-through;color:var(--sub);}
+  .task-due{font-size:12px;margin-top:3px;}
+  .task-due .memo{color:var(--sub);}
+  .task-actions{display:flex;gap:4px;flex-shrink:0;}
+  .icon-btn{
+    border:none;background:none;color:var(--sub);cursor:pointer;padding:6px;border-radius:8px;font-size:13px;
+  }
+  .icon-btn:active{background:var(--chip);}
+  .task-edit{margin-top:10px;display:none;flex-direction:column;gap:8px;border-top:1px dashed var(--line);padding-top:10px;}
+  .task-edit.open{display:flex;}
+  .section-collapsed{opacity:.5;}
+  .collapse-note{font-size:12px;color:var(--sub);margin-bottom:10px;}
+  .add-task-row{display:flex;gap:8px;margin-top:4px;}
+  .add-task-row input{flex:1;}
+  /* モーダル */
+  .modal-bg{
+    position:fixed;inset:0;background:rgba(20,30,40,.45);z-index:50;
+    display:none;align-items:flex-end;justify-content:center;padding:0;
+  }
+  .modal-bg.open{display:flex;}
+  .modal{
+    background:var(--bg);width:100%;max-width:760px;max-height:92vh;overflow-y:auto;
+    border-radius:18px 18px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom));
+  }
+  @media(min-width:600px){
+    .modal-bg{align-items:center;padding:20px;}
+    .modal{border-radius:18px;max-height:88vh;}
+  }
+  .modal h2{margin:0 0 14px;font-size:18px;}
+  .modal .actions{display:flex;gap:10px;margin-top:18px;}
+  .modal .actions .btn{flex:1;}
+  .hint{font-size:12px;color:var(--sub);margin:-4px 0 0;}
+  /* 確認ダイアログ */
+  .confirm{max-width:420px;border-radius:18px;align-self:center;margin:auto;}
+  /* 空状態 */
+  .empty{text-align:center;color:var(--sub);padding:48px 16px;font-size:14px;}
+  /* FAB */
+  .fab{
+    position:fixed;right:max(16px,calc(50% - 380px + 16px));bottom:calc(18px + env(safe-area-inset-bottom));
+    z-index:30;background:var(--accent);color:#fff;border:none;border-radius:999px;
+    box-shadow:0 4px 14px rgba(58,124,165,.4);padding:14px 20px;font-size:16px;font-weight:700;cursor:pointer;
+  }
+  .fab:active{background:var(--accent-d);}
+  .toast{
+    position:fixed;left:50%;bottom:90px;transform:translateX(-50%);
+    background:#27313a;color:#fff;padding:10px 18px;border-radius:999px;font-size:14px;z-index:80;
+    opacity:0;transition:opacity .25s;pointer-events:none;max-width:90%;
+  }
+  .toast.show{opacity:1;}
+  .hidden{display:none !important;}
+  .row-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;}
+  /* サイドバー（既定は非表示。PC幅＆詳細表示中のみ表示） */
+  #caseSidebar{display:none;}
+  .side-head{font-size:12px;color:var(--sub);font-weight:700;padding:6px 8px 10px;}
+  .side-item{
+    display:flex;align-items:center;gap:8px;width:100%;text-align:left;
+    border:none;background:none;border-radius:10px;padding:9px 8px;cursor:pointer;color:var(--text);
+    font-size:13px;line-height:1.3;margin-bottom:2px;
+  }
+  .side-item:hover{background:var(--chip);}
+  .side-item.active{background:#eaf1f6;}
+  .side-item .dot{flex:0 0 auto;width:9px;height:9px;border-radius:50%;background:var(--line);}
+  .side-item .dot.dot-over{background:var(--danger);}
+  .side-item .dot.dot-today{background:var(--warn);}
+  .side-item .dot.dot-done{background:var(--ok);}
+  .side-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;}
+  .side-cnt{flex:0 0 auto;font-size:11px;color:var(--sub);background:var(--chip);border-radius:999px;padding:1px 7px;}
+  .side-tasks{list-style:none;margin:0 0 10px;padding:0 8px 0 26px;}
+  .side-tasks li{font-size:11.5px;color:var(--sub);line-height:1.55;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;position:relative;}
+  .side-tasks li:before{content:"・";position:absolute;left:-11px;}
+  .side-tasks li.over{color:var(--danger);font-weight:600;}
+  .side-tasks li.today{color:var(--warn);font-weight:600;}
+  .side-tasks li.side-more{color:var(--accent);}
+  .side-tasks li.side-more:before{content:"";}
+  @media(min-width:900px){
+    body.detail-mode #caseSidebar{
+      display:block;position:fixed;top:53px;left:0;bottom:0;width:248px;
+      overflow-y:auto;background:var(--card);border-right:1px solid var(--line);
+      padding:10px 8px calc(20px + env(safe-area-inset-bottom));z-index:15;
+    }
+    body.detail-mode .wrap{margin-left:272px;}
+  }
+</style>
+</head>
+<body>
+
+<header class="app">
+  <div class="app-row">
+    <button class="back-btn hidden" id="backBtn" onclick="showList()">‹ 一覧</button>
+    <h1 class="app-title" id="appTitle">症例タスクボード</h1>
+    <button class="btn sm ghost" id="jsonBtn" onclick="openJsonModal()">バックアップ</button>
+  </div>
+  <div id="backupBar">
+    <div class="backup-inner">
+      <span id="backupStatus">バックアップ済</span>
+      <span style="flex:1"></span>
+      <label class="auto-toggle"><input type="checkbox" id="autoBackupChk" onchange="toggleAutoBackup(this.checked)">自動保存</label>
+      <button class="backup-export" onclick="downloadBackup(false)">書き出し</button>
+    </div>
+  </div>
+</header>
+
+<!-- ========== サイドバー（詳細画面・PC幅でのみ表示） ========== -->
+<aside id="caseSidebar"></aside>
+
+<div class="wrap">
+  <!-- ========== 一覧画面 ========== -->
+  <section id="listView">
+    <div class="toolbar">
+      <div class="top-actions">
+        <button class="btn primary" onclick="openAddCase()">＋症例追加</button>
+        <button class="btn" onclick="openMemoModal()">雑メモから追加</button>
+      </div>
+      <div class="sort-row">
+        <label>並び替え</label>
+        <select class="field" id="sortSelect" onchange="renderList()">
+          <option value="priority">締め切りが近い順</option>
+          <option value="caseDue">症例締め切りが近い順</option>
+          <option value="taskDue">タスク締め切りが近い順</option>
+          <option value="undone">未完了タスクが多い順</option>
+          <option value="oldest">古い症例順</option>
+          <option value="newest">新しい症例順</option>
+        </select>
+      </div>
+      <div class="filter-scroll" id="filterScroll"></div>
+    </div>
+    <div id="caseList"></div>
+  </section>
+
+  <!-- ========== 詳細画面 ========== -->
+  <section id="detailView" class="hidden"></section>
+</div>
+
+<button class="fab hidden" id="fab" onclick="openAddCase()">＋症例</button>
+
+<!-- ===== モーダル：症例追加 ===== -->
+<div class="modal-bg" id="addCaseModal">
+  <div class="modal">
+    <h2 id="addCaseTitle">症例追加</h2>
+    <div class="field-grid">
+      <div><label>日付</label><input type="date" class="field" id="ac_date"></div>
+      <div><label>カルテID</label><input type="text" class="field" id="ac_karte" placeholder="例：12345"></div>
+      <div><label>飼い主名</label><input type="text" class="field" id="ac_owner" placeholder="例：奥山"></div>
+      <div><label>動物名</label><input type="text" class="field" id="ac_patient" placeholder="例：モモ"></div>
+      <div><label>疾患名・主訴</label><input type="text" class="field" id="ac_diag" placeholder="例：肝リンパ腫"></div>
+      <p class="hint">追加すると標準タスク一式（報告書・検討会・FAX等）が自動で付きます。不要なものは詳細画面で削除できます。</p>
+      <div><label>症例締め切り日</label><input type="date" class="field" id="ac_dueDate"></div>
+      <div><label>症例締め切りメモ</label><input type="text" class="field" id="ac_dueMemo" placeholder="例：報告書完成目標"></div>
+    </div>
+    <div class="actions">
+      <button class="btn" onclick="closeModal('addCaseModal')">キャンセル</button>
+      <button class="btn primary" onclick="submitAddCase()">追加</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== モーダル：雑メモから追加 ===== -->
+<div class="modal-bg" id="memoModal">
+  <div class="modal">
+    <h2>雑メモから追加</h2>
+    <p class="hint">空行で症例を区切り。1行目に「日付 飼い主 動物名 疾患名」。<br>
+      「画像取り込みまだ／報告書まだ／症例検討会まだ／報告OKまだ／FAXまだ」を未完了タスク化します。解析できない行はメモ欄へ。</p>
+    <div class="field-grid" style="margin-top:10px;">
+      <div>
+        <label>年（日付に年が無い場合に使用）</label>
+        <select class="field" id="memoYear"></select>
+      </div>
+      <div>
+        <label>メモ</label>
+        <textarea class="field" id="memoText" style="min-height:160px;" placeholder="6/18 奥山 モモ 肝リンパ腫
+画像取り込みまだ
+報告書まだ
+
+6/17 堀 ニコ 慢性腸症
+画像取り込みまだ
+症例検討会まだ"></textarea>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn" onclick="closeModal('memoModal')">キャンセル</button>
+      <button class="btn primary" onclick="submitMemo()">解析して追加</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== モーダル：JSONバックアップ ===== -->
+<div class="modal-bg" id="jsonModal">
+  <div class="modal">
+    <h2>バックアップ（JSON）</h2>
+    <p class="hint">データはこの端末・このブラウザに保存されます。事故に備え、書き出しで控えを取れます。</p>
+    <div class="row-actions" style="margin-top:12px;">
+      <button class="btn primary" onclick="exportJson()">書き出し（ダウンロード）</button>
+      <button class="btn" onclick="document.getElementById('importFile').click()">読み込み（ファイル選択）</button>
+      <input type="file" id="importFile" accept="application/json,.json" class="hidden" onchange="importJson(event)">
+    </div>
+    <div class="field-grid" style="margin-top:14px;">
+      <div>
+        <label>または、JSONを貼り付けて読み込み</label>
+        <textarea class="field" id="jsonPaste" style="min-height:120px;" placeholder='[ {"id":"case_...", ...} ]'></textarea>
+      </div>
+    </div>
+    <div class="field-grid" style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px;">
+      <div>
+        <label>メンテナンス</label>
+        <button class="btn block" onclick="migrateAll()">全症例を最新の標準タスク構成に更新</button>
+        <p class="hint">名称変更（FAX送信状の印刷→準備 等）・カテゴリ整理・不足タスクの補充を全症例へ一括適用します。チェック状態・締め切り・症例特異的タスクは保持。念のため先に「書き出し」で控えを取ってください。</p>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn" onclick="closeModal('jsonModal')">閉じる</button>
+      <button class="btn primary" onclick="importJsonPaste()">貼り付けを読み込み</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== ようこそ／復旧（保存データが無いとき・サンプルを勝手に入れない） ===== -->
+<div class="modal-bg" id="welcomeModal">
+  <div class="modal confirm">
+    <h2>はじめに</h2>
+    <p style="margin:0 0 8px;color:var(--sub);">このファイルには保存データがありません。<br>
+      以前のデータの<b>バックアップ(JSON)</b>があれば、まず読み込んでください。</p>
+    <div class="actions" style="flex-direction:column;gap:10px;">
+      <button class="btn primary block" onclick="welcomeImport()">バックアップ(JSON)を読み込む</button>
+      <button class="btn block" onclick="welcomeSample()">サンプルで新規に始める</button>
+      <button class="btn ghost block" onclick="welcomeEmpty()">空の状態で始める</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 確認ダイアログ（共通） ===== -->
+<div class="modal-bg" id="confirmModal">
+  <div class="modal confirm">
+    <h2 id="confirmTitle">確認</h2>
+    <p id="confirmText" style="margin:0;color:var(--sub);"></p>
+    <div class="actions">
+      <button class="btn" onclick="closeModal('confirmModal')">キャンセル</button>
+      <button class="btn danger" id="confirmOk">削除する</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* =========================================================================
+   症例タスクボード — 単一HTMLの臨床用タスク管理アプリ
+   - データは localStorage に保存（再読み込みしても復元）
+   - SPA風：JSで listView / detailView を切り替え
+   ========================================================================= */
+
+const STORAGE_KEY = "caseTaskBoard.v1";
+
+/* ---- 標準初期タスク（症例タイプは廃止し、全症例共通） ---- */
+const DEFAULT_TASKS = [
+  {title:"カルテ作成", category:"common"},
+  {title:"診療申込書のスキャン", category:"common"},
+  {title:"画像取り込み", category:"common"},
+  {title:"報告書作成", category:"common"},
+  {title:"報告OKをもらう", category:"common"},
+  {title:"検討会のスライド下書き", category:"common"},
+  {title:"FAX送信状の準備", category:"common"},
+  {title:"検討会のスライド完成", category:"afterReportOk"},
+  {title:"検討会発表", category:"afterReportOk"},
+  {title:"検査結果の印刷", category:"afterReportOk"},
+  {title:"FAX送信", category:"afterReportOk"},
+  {title:"FAXスキャン", category:"afterReportOk"},
+];
+// 「検討会まだ」判定に使うタスク名（旧「症例検討会の準備」も互換のため含む）
+const MEETING_TITLES = ["症例検討会の準備","検討会のスライド下書き","検討会のスライド完成","検討会発表"];
+
+/* ---- 状態 ---- */
+let cases = [];
+let activeFilter = "all";
+let currentCaseId = null;   // 詳細表示中の症例ID
+
+/* ========================= ユーティリティ ========================= */
+function uid(prefix){ return prefix + "_" + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+function nowISO(){ return new Date().toISOString(); }
+function pad(n){ return String(n).padStart(2,"0"); }
+
+/* ローカル日時の "YYYY-MM-DDTHH:MM:SS" を Date に（タイムゾーン安全） */
+function parseLocal(dtStr){
+  if(!dtStr) return null;
+  const m = dtStr.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/);
+  if(!m) return null;
+  const y=+m[1],mo=+m[2]-1,d=+m[3];
+  // 時刻未設定の締め切りは「その日の23:59」扱い（当日中は超過にしない）
+  const hh = m[4]!==undefined ? +m[4] : 23;
+  const mm = m[5]!==undefined ? +m[5] : 59;
+  return new Date(y,mo,d,hh,mm,0,0);
+}
+function hasTime(dtStr){ return !!(dtStr && /[T ]\d{2}:\d{2}/.test(dtStr)); }
+
+/* 日付・時刻入力から ISO風文字列を組み立て */
+function buildDueAt(dateStr, timeStr){
+  if(!dateStr) return "";
+  if(timeStr) return dateStr + "T" + timeStr + ":00";
+  return dateStr + "T00:00:00_DATEONLY"; // 内部マーカー（時刻なし）
+}
+/* dueAt（保存用）を正規化：時刻なしは "YYYY-MM-DD" として保存 */
+function normalizeDueAt(dateStr, timeStr){
+  if(!dateStr) return "";
+  if(timeStr) return dateStr + "T" + timeStr + ":00";
+  return dateStr; // 日付のみ
+}
+function splitDue(dueAt){
+  if(!dueAt) return {date:"", time:""};
+  const m = dueAt.match(/^(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2}))?/);
+  if(!m) return {date:"", time:""};
+  return {date:m[1], time:m[2]||""};
+}
+
+/* ---- 締め切りステータス判定（未完了タスク・症例締め切り用） ---- */
+// 戻り値: {level, label} level: over/today/tomorrow/soon/has/none
+function dueStatus(dueAt){
+  if(!dueAt) return {level:"none", label:"期限なし"};
+  const due = parseLocal(dueAt);
+  if(!due) return {level:"none", label:"期限なし"};
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(),now.getMonth(),now.getDate(),0,0,0);
+  const startDue   = new Date(due.getFullYear(),due.getMonth(),due.getDate(),0,0,0);
+  const dayDiff = Math.round((startDue - startToday)/86400000);
+  if(due < now) return {level:"over", label:"期限超過"};
+  if(dayDiff === 0) return {level:"today", label:"今日まで"};
+  if(dayDiff === 1) return {level:"tomorrow", label:"明日まで"};
+  if(dayDiff <= 3)  return {level:"soon", label:dayDiff+"日以内"};
+  return {level:"has", label:"期限あり"};
+}
+function dueClass(level){
+  return {over:"due-over",today:"due-today",tomorrow:"due-tom",soon:"due-soon",has:"due-soon",none:"due-none"}[level]||"due-none";
+}
+/* 締め切り表示テキスト（例：6/24 18:00） */
+function fmtDue(dueAt){
+  if(!dueAt) return "期限なし";
+  const {date,time} = splitDue(dueAt);
+  const m = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(!m) return "期限なし";
+  let s = (+m[2]) + "/" + (+m[3]);
+  if(time) s += " " + time;
+  return s;
+}
+function fmtDateShort(dateStr){
+  const m = (dateStr||"").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(!m) return dateStr||"";
+  return (+m[2]) + "/" + (+m[3]);
+}
+
+/* ========================= 派生計算 ========================= */
+/* 報告OK後タスクが「有効（着手扱い）」か：仕様上カウントには常に含める。
+   ただし表示の折りたたみ判定に使うため、報告OK済みかを別途取得する。 */
+function isReportOk(c){
+  const t = c.tasks.find(t=>t.title==="報告OKをもらう" && t.category==="common");
+  return t ? t.done : false; // 「報告OKをもらう」が無い症例タイプは false（後続タスクも無い）
+}
+/* 未完了タスク（報告OK後タスクもカウント対象に含む） */
+function undoneTasks(c){ return c.tasks.filter(t=>!t.done); }
+
+/* 症例の優先期限（締め切りが近い順の基準）。
+   - 症例全体の締め切り と 未完了タスクの締め切り のうち最も近い未来/過去を採用
+   - 完了済みタスクの締め切りは無視
+   戻り値: {date:Date|null, over:boolean, overMs:number} */
+function casePriority(c){
+  const candidates = [];
+  if(c.caseDueAt){ const d=parseLocal(c.caseDueAt); if(d) candidates.push(d); }
+  undoneTasks(c).forEach(t=>{ if(t.dueAt){ const d=parseLocal(t.dueAt); if(d) candidates.push(d); }});
+  if(candidates.length===0) return {date:null, over:false, overMs:0};
+  const now = new Date();
+  const overdue = candidates.filter(d=>d<now);
+  if(overdue.length){
+    // 期限超過がある → 最も過去（超過が大きい）を採用、最上位扱い
+    const earliest = overdue.reduce((a,b)=>a<b?a:b);
+    return {date:earliest, over:true, overMs: now - earliest};
+  }
+  // 未来のみ → 最も近い未来
+  const nearest = candidates.reduce((a,b)=>a<b?a:b);
+  return {date:nearest, over:false, overMs:0};
+}
+
+/* 最も近い未完了タスク（締め切りあり、近い順／超過は最優先） */
+function nearestUndoneTask(c){
+  const list = undoneTasks(c).filter(t=>t.dueAt).map(t=>({t, d:parseLocal(t.dueAt)})).filter(x=>x.d);
+  if(!list.length) return null;
+  const now = new Date();
+  list.sort((a,b)=>{
+    const ao=a.d<now, bo=b.d<now;
+    if(ao&&bo) return a.d-b.d;       // 両方超過：古い順（超過大）
+    if(ao) return -1; if(bo) return 1; // 超過を先に
+    return a.d-b.d;                    // 未来：近い順
+  });
+  return list[0].t;
+}
+
+/* ステータスタグ自動判定 */
+function caseTags(c){
+  const tags = [];
+  const undone = undoneTasks(c);
+  const has = (title)=> undone.some(t=>t.title===title);
+  // 全タスク完了
+  if(c.tasks.length>0 && undone.length===0){ tags.push({cls:"done", label:"完了"}); return tags; }
+  if(has("画像取り込み")) tags.push({cls:"todo", label:"画像まだ"});
+  if(has("報告書作成")) tags.push({cls:"todo", label:"報告書まだ"});
+  if(has("報告OKをもらう")) tags.push({cls:"todo", label:"報告OK待ち"});
+  if(has("FAX送信")) tags.push({cls:"todo", label:"FAXまだ"});
+  if(undone.some(t=>MEETING_TITLES.includes(t.title))) tags.push({cls:"todo", label:"検討会まだ"});
+  // 期限系（未完了タスク・症例締め切りから）
+  let over=false, today=false;
+  const allDue = [];
+  if(c.caseDueAt) allDue.push(c.caseDueAt);
+  undone.forEach(t=>{ if(t.dueAt) allDue.push(t.dueAt); });
+  allDue.forEach(d=>{
+    const st = dueStatus(d);
+    if(st.level==="over") over=true;
+    if(st.level==="today") today=true;
+  });
+  if(over) tags.unshift({cls:"over", label:"期限超過"});
+  else if(today) tags.unshift({cls:"today", label:"今日まで"});
+  return tags;
+}
+
+/* フィルター判定 */
+function matchFilter(c, f){
+  const undone = undoneTasks(c);
+  const has = (title)=> undone.some(t=>t.title===title);
+  const dueLevels = ()=>{
+    const arr=[]; if(c.caseDueAt) arr.push(dueStatus(c.caseDueAt).level);
+    undone.forEach(t=>{ if(t.dueAt) arr.push(dueStatus(t.dueAt).level); });
+    return arr;
+  };
+  switch(f){
+    case "all": return true;
+    case "today": return dueLevels().includes("today");
+    case "img": return has("画像取り込み");
+    case "report": return has("報告書作成");
+    case "reportok": return has("報告OKをもらう");
+    case "fax": return has("FAX送信");
+    case "meeting": return undone.some(t=>MEETING_TITLES.includes(t.title));
+    case "over": return dueLevels().includes("over");
+    case "todayDue": return dueLevels().includes("today");
+    case "tomorrow": return dueLevels().includes("tomorrow");
+    case "soon": return dueLevels().some(l=>["today","tomorrow","soon"].includes(l));
+    case "noDue": return !c.caseDueAt && undone.every(t=>!t.dueAt);
+    case "done": return c.tasks.length>0 && undone.length===0;
+    default: return true;
+  }
+}
+const FILTERS = [
+  {key:"all", label:"すべて"},
+  {key:"today", label:"今日やる"},
+  {key:"img", label:"画像まだ"},
+  {key:"report", label:"報告書まだ"},
+  {key:"reportok", label:"報告OK待ち"},
+  {key:"fax", label:"FAXまだ"},
+  {key:"meeting", label:"検討会まだ"},
+  {key:"over", label:"期限超過"},
+  {key:"tomorrow", label:"明日まで"},
+  {key:"soon", label:"3日以内"},
+  {key:"noDue", label:"期限なし"},
+  {key:"done", label:"完了"},
+];
+
+/* ========================= 永続化・バックアップ ========================= */
+const META_KEY = "caseTaskBoard.meta";
+const AUTO_INTERVAL_MS = 3 * 60 * 1000;   // 自動バックアップの最短間隔（3分）
+let appReady = false;                       // 起動完了まで自動バックアップを抑止
+let meta = { autoBackup:true, lastExportAt:0, lastAutoAt:0, dirty:false };
+
+function loadMeta(){
+  try{ const r=localStorage.getItem(META_KEY); if(r) meta=Object.assign(meta, JSON.parse(r)); }catch(e){}
+}
+function saveMeta(){
+  try{ localStorage.setItem(META_KEY, JSON.stringify(meta)); }catch(e){}
+}
+
+function save(){
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(cases)); }
+  catch(e){ console.error("保存に失敗", e); toast("保存に失敗しました"); }
+  meta.dirty = true; saveMeta();
+  maybeAutoBackup();   // ユーザー操作中なら自動でファイル書き出し（Safari対応）
+  updateBackupBar();
+}
+function load(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw){ cases = JSON.parse(raw); return true; }
+  }catch(e){ console.error("読み込み失敗", e); }
+  return false;
+}
+
+/* JSONをファイルとして書き出す（手動／自動共通） */
+function downloadBackup(isAuto){
+  try{
+    const blob = new Blob([JSON.stringify(cases,null,2)], {type:"application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); const d = new Date();
+    a.href = url;
+    a.download = isAuto
+      ? "症例タスクボード_自動バックアップ.json"
+      : `症例タスクボード_${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    meta.lastExportAt = Date.now(); meta.dirty = false; saveMeta(); updateBackupBar();
+    if(!isAuto) toast("書き出しました");
+  }catch(e){ console.error(e); toast("書き出しに失敗しました"); }
+}
+function maybeAutoBackup(){
+  if(!appReady || !meta.autoBackup) return;
+  const now = Date.now();
+  if(now - (meta.lastAutoAt||0) < AUTO_INTERVAL_MS) return;
+  meta.lastAutoAt = now;
+  downloadBackup(true);   // 現在のユーザー操作（クリック）内で実行されるため Safari でも通る
+}
+function toggleAutoBackup(on){
+  meta.autoBackup = on; saveMeta(); updateBackupBar();
+  toast(on ? "自動バックアップ ON" : "自動バックアップ OFF");
+}
+/* 上部バーの表示更新 */
+function updateBackupBar(){
+  const bar = document.getElementById("backupBar"); if(!bar) return;
+  const st = document.getElementById("backupStatus");
+  const chk = document.getElementById("autoBackupChk"); if(chk) chk.checked = !!meta.autoBackup;
+  if(meta.dirty){
+    bar.classList.add("dirty");
+    st.textContent = "未保存の変更があります — 書き出しを推奨";
+  }else{
+    bar.classList.remove("dirty");
+    const t = meta.lastExportAt ? new Date(meta.lastExportAt) : null;
+    st.textContent = t ? ("バックアップ済 ・ 最終 " + pad(t.getHours()) + ":" + pad(t.getMinutes())) : "バックアップ済";
+  }
+}
+
+/* ========================= サンプルデータ ========================= */
+function makeDefaultTasks(){
+  return DEFAULT_TASKS.map(t=>({
+    id:uid("task"), title:t.title, done:false, category:t.category, dueAt:"", dueMemo:""
+  }));
+}
+function seedSample(){
+  const c1 = {
+    id:uid("case"), date:"2026-06-18", karteId:"10231", ownerName:"奥山", patientName:"モモ",
+    diagnosis:"肝リンパ腫", type:"通常紹介症例",
+    caseDueAt:"2026-06-24", caseDueMemo:"報告書完成目標",
+    tasks:[
+      {id:uid("task"),title:"カルテ作成",done:true,category:"common",dueAt:"",dueMemo:""},
+      {id:uid("task"),title:"診療申込書のスキャン",done:true,category:"common",dueAt:"",dueMemo:""},
+      {id:uid("task"),title:"画像取り込み",done:false,category:"common",dueAt:"2026-06-24T12:00:00",dueMemo:"昼までに取り込み"},
+      {id:uid("task"),title:"報告書作成",done:false,category:"common",dueAt:"2026-06-24T18:00:00",dueMemo:"夕方までに初稿"},
+      {id:uid("task"),title:"報告OKをもらう",done:false,category:"common",dueAt:"",dueMemo:""},
+      {id:uid("task"),title:"検査結果の印刷",done:false,category:"afterReportOk",dueAt:"",dueMemo:""},
+      {id:uid("task"),title:"FAX送信状の印刷",done:false,category:"afterReportOk",dueAt:"",dueMemo:""},
+      {id:uid("task"),title:"FAX送信",done:false,category:"afterReportOk",dueAt:"2026-06-25T10:00:00",dueMemo:""},
+      {id:uid("task"),title:"FAXスキャン",done:false,category:"afterReportOk",dueAt:"",dueMemo:""},
+    ],
+    memo:"", createdAt:"2026-06-18T00:00:00.000Z", updatedAt:"2026-06-18T00:00:00.000Z"
+  };
+  const c2 = {
+    id:uid("case"), date:"2026-06-17", karteId:"10198", ownerName:"堀", patientName:"ニコ",
+    diagnosis:"慢性腸症", type:"症例検討会",
+    caseDueAt:"2026-06-27", caseDueMemo:"症例検討会準備",
+    tasks:[
+      {id:uid("task"),title:"画像取り込み",done:false,category:"common",dueAt:"",dueMemo:""},
+      {id:uid("task"),title:"症例検討会の準備",done:false,category:"common",dueAt:"2026-06-27T18:00:00",dueMemo:""},
+    ],
+    memo:"", createdAt:"2026-06-17T00:00:00.000Z", updatedAt:"2026-06-17T00:00:00.000Z"
+  };
+  cases = [c1, c2];
+  save();
+}
+
+/* ========================= 一覧画面の描画 ========================= */
+function renderFilters(){
+  const box = document.getElementById("filterScroll");
+  box.innerHTML = "";
+  FILTERS.forEach(f=>{
+    const cnt = cases.filter(c=>matchFilter(c,f.key)).length;
+    const el = document.createElement("button");
+    el.className = "fchip" + (activeFilter===f.key ? " active":"");
+    el.innerHTML = f.label + (f.key!=="all" ? `<span class="cnt">${cnt}</span>` : "");
+    el.onclick = ()=>{ activeFilter=f.key; renderList(); };
+    box.appendChild(el);
+  });
+}
+
+function sortedCases(){
+  const sort = document.getElementById("sortSelect").value;
+  let list = cases.filter(c=>matchFilter(c, activeFilter));
+  const now = new Date();
+  const byCreated = (c)=> new Date(c.createdAt||c.date).getTime();
+  if(sort==="priority"){
+    list.sort((a,b)=>{
+      const pa=casePriority(a), pb=casePriority(b);
+      // 期限超過は最上位（超過が大きいほど上）
+      if(pa.over && pb.over) return pb.overMs - pa.overMs;
+      if(pa.over) return -1; if(pb.over) return 1;
+      // 期限ありを期限なしより上、近い順
+      if(pa.date && pb.date) return pa.date - pb.date;
+      if(pa.date) return -1; if(pb.date) return 1;
+      return byCreated(b)-byCreated(a);
+    });
+  } else if(sort==="caseDue"){
+    list.sort((a,b)=>{
+      const da=a.caseDueAt?parseLocal(a.caseDueAt):null, db=b.caseDueAt?parseLocal(b.caseDueAt):null;
+      if(da&&db) return da-db; if(da) return -1; if(db) return 1; return byCreated(b)-byCreated(a);
+    });
+  } else if(sort==="taskDue"){
+    list.sort((a,b)=>{
+      const ta=nearestUndoneTask(a), tb=nearestUndoneTask(b);
+      const da=ta?parseLocal(ta.dueAt):null, db=tb?parseLocal(tb.dueAt):null;
+      if(da&&db) return da-db; if(da) return -1; if(db) return 1; return byCreated(b)-byCreated(a);
+    });
+  } else if(sort==="undone"){
+    list.sort((a,b)=> undoneTasks(b).length - undoneTasks(a).length || byCreated(b)-byCreated(a));
+  } else if(sort==="oldest"){
+    list.sort((a,b)=> byCreated(a)-byCreated(b));
+  } else if(sort==="newest"){
+    list.sort((a,b)=> byCreated(b)-byCreated(a));
+  }
+  return list;
+}
+
+function renderList(){
+  renderFilters();
+  const box = document.getElementById("caseList");
+  const list = sortedCases();
+  box.innerHTML = "";
+  if(list.length===0){
+    box.innerHTML = `<div class="empty">該当する症例はありません。<br>「＋症例追加」または「雑メモから追加」で登録できます。</div>`;
+    return;
+  }
+  list.forEach(c=>{
+    const undone = undoneTasks(c);
+    const prio = casePriority(c);
+    const nearest = nearestUndoneTask(c);
+    const tags = caseTags(c);
+    // 期限超過タスク数・今日までのタスク数
+    let overCnt=0, todayCnt=0;
+    undone.forEach(t=>{ if(t.dueAt){ const l=dueStatus(t.dueAt).level; if(l==="over")overCnt++; if(l==="today")todayCnt++; }});
+    // カードの左帯レベル
+    let lv="lv-soon";
+    if(c.tasks.length>0 && undone.length===0) lv="lv-done";
+    else if(prio.over || overCnt>0) lv="lv-over";
+    else if(todayCnt>0 || (c.caseDueAt&&dueStatus(c.caseDueAt).level==="today")) lv="lv-today";
+
+    // 症例締め切り表示
+    let dueHtml = "";
+    if(c.caseDueAt){
+      const st = dueStatus(c.caseDueAt);
+      dueHtml = `<div class="cc-due"><span class="t" style="color:var(--sub)">症例期限：</span>
+        <span class="${dueClass(st.level)}">${fmtDue(c.caseDueAt)}・${st.label}</span></div>`;
+    }
+    // 最短期限（未完了タスク）
+    let nearestHtml = "";
+    if(nearest){
+      const st = dueStatus(nearest.dueAt);
+      nearestHtml = `<div class="cc-line">最短期限：<span class="${dueClass(st.level)}">${fmtDue(nearest.dueAt)}・${st.label}</span> <b>${esc(nearest.title)}</b></div>`;
+    }
+    // 代表3件（締め切り順：超過→今日→近い→期限なし）
+    const rep = repTasks(c).slice(0,3).map(t=>esc(t.title)).join(" ／ ");
+    const repHtml = rep ? `<div class="cc-rep"><span class="t">未完了：</span>${rep}</div>` : "";
+
+    const card = document.createElement("div");
+    card.className = "case-card " + lv;
+    card.onclick = ()=> showDetail(c.id);
+    card.innerHTML = `
+      <div class="cc-head">
+        <span class="cc-date">${fmtDateShort(c.date)}</span>
+        ${c.karteId?`<span class="cc-karte">ID:${esc(c.karteId)}</span>`:""}
+        <span class="cc-name">${esc(c.ownerName)} ${esc(c.patientName)}</span>
+      </div>
+      <div class="cc-head" style="margin-top:2px;">
+        <span class="cc-diag">${esc(c.diagnosis)||"（疾患未入力）"}</span>
+      </div>
+      ${dueHtml}
+      ${nearestHtml}
+      ${repHtml}
+      <div class="cc-line">未完了 <b>${undone.length}</b> 件
+        ${overCnt?` ・ <span class="due-over">超過${overCnt}</span>`:""}
+        ${todayCnt?` ・ <span class="due-today">今日まで${todayCnt}</span>`:""}
+      </div>
+      <div class="tags">${tags.map(t=>`<span class="tag ${t.cls}">${t.label}</span>`).join("")}</div>
+    `;
+    box.appendChild(card);
+  });
+}
+
+/* 代表タスク：締め切り順（超過→今日→明日→近い→期限あり→期限なし） */
+function repTasks(c){
+  const order = {over:0,today:1,tomorrow:2,soon:3,has:4,none:5};
+  return undoneTasks(c).slice().sort((a,b)=>{
+    const la=dueStatus(a.dueAt).level, lb=dueStatus(b.dueAt).level;
+    if(order[la]!==order[lb]) return order[la]-order[lb];
+    const da=a.dueAt?parseLocal(a.dueAt):null, db=b.dueAt?parseLocal(b.dueAt):null;
+    if(da&&db) return da-db; if(da) return -1; if(db) return 1; return 0;
+  });
+}
+
+/* ========================= 詳細画面の描画 ========================= */
+function showDetail(id){
+  currentCaseId = id;
+  document.getElementById("listView").classList.add("hidden");
+  document.getElementById("detailView").classList.remove("hidden");
+  document.getElementById("backBtn").classList.remove("hidden");
+  document.getElementById("fab").classList.add("hidden");
+  document.getElementById("appTitle").textContent = "症例詳細";
+  document.body.classList.add("detail-mode");
+  window.scrollTo(0,0);
+  renderDetail();
+}
+function showList(){
+  currentCaseId = null;
+  document.getElementById("detailView").classList.add("hidden");
+  document.getElementById("listView").classList.remove("hidden");
+  document.getElementById("backBtn").classList.add("hidden");
+  document.getElementById("fab").classList.remove("hidden");
+  document.getElementById("appTitle").textContent = "症例タスクボード";
+  document.body.classList.remove("detail-mode");
+  renderList();
+  window.scrollTo(0,0);
+}
+
+/* 詳細画面のサイドバー（全症例・優先期限順、現在の症例をハイライト） */
+function setSidebarTop(){
+  const h = document.querySelector("header.app");
+  const aside = document.getElementById("caseSidebar");
+  if(h && aside) aside.style.top = h.offsetHeight + "px";
+}
+function renderSidebar(){
+  const aside = document.getElementById("caseSidebar");
+  if(!aside) return;
+  setSidebarTop();
+  const arr = cases.slice().sort((a,b)=>{
+    const pa=casePriority(a), pb=casePriority(b);
+    if(pa.over && pb.over) return pb.overMs - pa.overMs;
+    if(pa.over) return -1; if(pb.over) return 1;
+    if(pa.date && pb.date) return pa.date - pb.date;
+    if(pa.date) return -1; if(pb.date) return 1;
+    return 0;
+  });
+  aside.innerHTML = `<div class="side-head">症例（${cases.length}）</div>` + arr.map(c=>{
+    const undone = undoneTasks(c);
+    const prio = casePriority(c);
+    let dot="dot-none";
+    if(c.tasks.length>0 && undone.length===0) dot="dot-done";
+    else{
+      let over=prio.over, today=false;
+      undone.forEach(t=>{ if(t.dueAt){ const l=dueStatus(t.dueAt).level; if(l==="over")over=true; if(l==="today")today=true; }});
+      if(c.caseDueAt){ const l=dueStatus(c.caseDueAt).level; if(l==="over")over=true; if(l==="today")today=true; }
+      if(over) dot="dot-over"; else if(today) dot="dot-today";
+    }
+    const active = c.id===currentCaseId ? " active" : "";
+    // 未完了タスクを締め切り順で軽く表示（上位のみ＋残数）
+    const SHOWN = 6;
+    const reps = repTasks(c);
+    const lis = reps.slice(0, SHOWN).map(t=>{
+      let cls=""; if(t.dueAt){ const l=dueStatus(t.dueAt).level; if(l==="over")cls="over"; else if(l==="today")cls="today"; }
+      return `<li class="${cls}">${esc(t.title)}</li>`;
+    }).join("");
+    const moreN = reps.length - SHOWN;
+    const moreLi = moreN>0 ? `<li class="side-more">＋${moreN}件</li>` : "";
+    const taskList = reps.length ? `<ul class="side-tasks">${lis}${moreLi}</ul>` : "";
+    return `<div class="side-case">
+      <button class="side-item${active}" onclick="showDetail('${c.id}')">
+        <span class="dot ${dot}"></span>
+        <span class="side-name">${esc(c.ownerName)} ${esc(c.patientName)}</span>
+        <span class="side-cnt">${undone.length}</span>
+      </button>
+      ${taskList}
+    </div>`;
+  }).join("");
+}
+function getCase(id){ return cases.find(c=>c.id===id); }
+
+function renderDetail(){
+  const c = getCase(currentCaseId);
+  if(!c){ showList(); return; }
+  renderSidebar();
+  const view = document.getElementById("detailView");
+  const hasReportStep = c.tasks.some(t=>t.title==="報告OKをもらう" && t.category==="common");
+
+  // セクション分け
+  const common = c.tasks.filter(t=>t.category==="common");
+  const after  = c.tasks.filter(t=>t.category==="afterReportOk");
+  const custom = c.tasks.filter(t=>t.category==="custom");
+
+  const due = splitDue(c.caseDueAt);
+
+  view.innerHTML = `
+    <!-- 基本情報 -->
+    <div class="panel">
+      <h2>症例基本情報</h2>
+      <div class="field-grid">
+        <div class="two-col">
+          <div><label>日付</label><input type="date" class="field" value="${c.date||""}" onchange="updateField('date',this.value)"></div>
+          <div><label>カルテID</label><input type="text" class="field" value="${attr(c.karteId)}" onchange="updateField('karteId',this.value)"></div>
+        </div>
+        <div class="two-col">
+          <div><label>飼い主名</label><input type="text" class="field" value="${attr(c.ownerName)}" onchange="updateField('ownerName',this.value)"></div>
+          <div><label>動物名</label><input type="text" class="field" value="${attr(c.patientName)}" onchange="updateField('patientName',this.value)"></div>
+        </div>
+        <div><label>疾患名・主訴</label><input type="text" class="field" value="${attr(c.diagnosis)}" onchange="updateField('diagnosis',this.value)"></div>
+        <div><label>症例締め切り日</label><input type="date" class="field" value="${due.date}" onchange="updateCaseDue('date',this.value)"></div>
+        <div><label>症例締め切りメモ</label><input type="text" class="field" value="${attr(c.caseDueMemo)}" onchange="updateField('caseDueMemo',this.value)"></div>
+      </div>
+    </div>
+
+    <!-- 当日中にやることリスト -->
+    <div class="panel">
+      <h2>当日中にやることリスト <span class="count">${common.filter(t=>!t.done).length}/${common.length} 未完了</span></h2>
+      <div id="sec-common">${common.map(t=>taskHtml(c,t)).join("")||emptyTask()}</div>
+      ${addTaskRow("common")}
+    </div>
+
+    <!-- 報告OK後タスク（共通タスクと並行して最初から編集可） -->
+    ${ after.length || hasReportStep ? `
+    <div class="panel">
+      <h2>報告OK後タスク <span class="count">${after.filter(t=>!t.done).length}/${after.length} 未完了</span></h2>
+      <div id="sec-after">${after.map(t=>taskHtml(c,t)).join("")||emptyTask()}</div>
+      ${addTaskRow("afterReportOk")}
+    </div>`:"" }
+
+    <!-- 症例特異的タスク -->
+    <div class="panel">
+      <h2>症例特異的タスク <span class="count">${custom.filter(t=>!t.done).length}/${custom.length} 未完了</span></h2>
+      <div id="sec-custom">${custom.map(t=>taskHtml(c,t)).join("")||emptyTask()}</div>
+      <div style="margin-top:12px;">
+        <label style="font-size:13px;color:var(--sub);font-weight:600;">複数行から一括追加（1行＝1タスク）</label>
+        <textarea class="field" id="bulkCustom" style="min-height:90px;margin-top:4px;" placeholder="肝臓FNA結果確認
+クローナリティ検査の要否相談
+プレドニゾロン開始可否確認
+紹介元への予後説明文作成"></textarea>
+        <button class="btn sm primary" style="margin-top:8px;" onclick="bulkAddCustom()">一括追加</button>
+      </div>
+    </div>
+
+    <!-- メモ -->
+    <div class="panel">
+      <h2>メモ欄</h2>
+      <textarea class="field" style="min-height:110px;" onchange="updateField('memo',this.value)" placeholder="自由記入">${esc(c.memo)}</textarea>
+    </div>
+
+    <!-- 操作 -->
+    <div class="panel">
+      <div class="row-actions">
+        <button class="btn" onclick="showList()">‹ 一覧に戻る</button>
+        <button class="btn" onclick="addMissingDefaults()">標準タスクを補充</button>
+        <button class="btn danger" onclick="confirmDeleteCase()">症例を削除</button>
+      </div>
+      <p class="hint" style="margin-top:8px;">「補充」は不足している標準タスクだけ足します（既存タスクは消えません）。</p>
+    </div>
+  `;
+}
+
+function emptyTask(){ return `<div style="color:var(--sub);font-size:13px;padding:4px 2px 8px;">タスクはありません</div>`; }
+
+/* タスク1件のHTML */
+function taskHtml(c, t){
+  const st = dueStatus(t.dueAt);
+  const due = splitDue(t.dueAt);
+  // 完了済みは期限超過扱いにしない
+  const showDue = t.dueAt ? `<span class="${t.done?"due-none":dueClass(st.level)}">${fmtDue(t.dueAt)}${t.done?"":"・"+st.label}</span>` : `<span class="due-none">期限なし</span>`;
+  const memoTxt = t.dueMemo ? ` <span class="memo">/ ${esc(t.dueMemo)}</span>` : "";
+  return `
+  <div class="task ${t.done?"done-row":""}" id="task-${t.id}">
+    <div class="task-main">
+      <div class="check ${t.done?"on":""}" onclick="toggleTask('${t.id}')" role="checkbox" aria-checked="${t.done}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 7"/></svg>
+      </div>
+      <div class="task-body">
+        <div class="task-title">${esc(t.title)}</div>
+        <div class="task-due">${showDue}${memoTxt}</div>
+      </div>
+      <div class="task-actions">
+        <button class="icon-btn" onclick="toggleEdit('${t.id}')" title="編集">✎</button>
+        <button class="icon-btn" onclick="confirmDeleteTask('${t.id}')" title="削除">🗑</button>
+      </div>
+    </div>
+    <div class="task-edit" id="edit-${t.id}">
+      <div><label style="font-size:12px;color:var(--sub);">タスク名</label>
+        <input type="text" class="field" value="${attr(t.title)}" onchange="editTask('${t.id}','title',this.value)"></div>
+      <div class="two-col">
+        <div><label style="font-size:12px;color:var(--sub);">締め切り日</label>
+          <input type="date" class="field" value="${due.date}" onchange="editTaskDue('${t.id}','date',this.value)"></div>
+        <div><label style="font-size:12px;color:var(--sub);">時刻</label>
+          <input type="time" class="field" value="${due.time}" onchange="editTaskDue('${t.id}','time',this.value)"></div>
+      </div>
+      <div><label style="font-size:12px;color:var(--sub);">締め切りメモ</label>
+        <input type="text" class="field" value="${attr(t.dueMemo)}" onchange="editTask('${t.id}','dueMemo',this.value)"></div>
+      <button class="btn sm" onclick="toggleEdit('${t.id}')">閉じる</button>
+    </div>
+  </div>`;
+}
+
+function addTaskRow(category){
+  return `<div class="add-task-row">
+    <input type="text" class="field" placeholder="タスクを追加" id="add-${category}"
+      onkeydown="if(event.key==='Enter'){addTask('${category}');}">
+    <button class="btn primary sm" onclick="addTask('${category}')">追加</button>
+  </div>`;
+}
+
+/* ========================= タスク操作 ========================= */
+function touch(c){ c.updatedAt = nowISO(); }
+function toggleTask(taskId){
+  const c = getCase(currentCaseId);
+  const t = c.tasks.find(x=>x.id===taskId);
+  if(!t) return;
+  t.done = !t.done;
+  touch(c); save(); renderDetail();
+}
+function toggleEdit(taskId){
+  const el = document.getElementById("edit-"+taskId);
+  if(el) el.classList.toggle("open");
+}
+function editTask(taskId, field, val){
+  const c = getCase(currentCaseId);
+  const t = c.tasks.find(x=>x.id===taskId);
+  if(!t) return;
+  if(field==="title" && !val.trim()){ toast("タスク名は空にできません"); renderDetail(); return; }
+  t[field] = val;
+  touch(c); save(); renderDetail();
+}
+function editTaskDue(taskId, part, val){
+  const c = getCase(currentCaseId);
+  const t = c.tasks.find(x=>x.id===taskId);
+  if(!t) return;
+  const cur = splitDue(t.dueAt);
+  if(part==="date") cur.date = val;
+  if(part==="time") cur.time = val;
+  if(!cur.date){ t.dueAt=""; }      // 日付なし→期限なし（時刻だけは保持しない）
+  else t.dueAt = normalizeDueAt(cur.date, cur.time);
+  touch(c); save(); renderDetail();
+}
+function addTask(category){
+  const input = document.getElementById("add-"+category);
+  const title = input.value.trim();
+  if(!title) return;
+  const c = getCase(currentCaseId);
+  c.tasks.push({id:uid("task"), title, done:false, category, dueAt:"", dueMemo:""});
+  touch(c); save();
+  // 入力欄フォーカス維持のため最小再描画ではなく全体再描画（簡潔さ優先）
+  renderDetail();
+  // 同カテゴリの入力欄へフォーカス
+  const again = document.getElementById("add-"+category);
+  if(again) again.focus();
+}
+function bulkAddCustom(){
+  const ta = document.getElementById("bulkCustom");
+  const lines = ta.value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  if(!lines.length){ toast("テキストを入力してください"); return; }
+  const c = getCase(currentCaseId);
+  lines.forEach(title=> c.tasks.push({id:uid("task"), title, done:false, category:"custom", dueAt:"", dueMemo:""}));
+  touch(c); save(); renderDetail();
+  toast(lines.length+"件追加しました");
+}
+/* 旧タスク名 → 新タスク名の対応（一括更新で使用） */
+const RENAME_MAP = {
+  "FAX送信状の印刷":"FAX送信状の準備",
+  "症例検討会の準備":"検討会のスライド下書き",
+};
+/* 全症例を最新の標準構成へ一括更新：
+   ①名称変更 ②標準タスクのカテゴリ整理 ③重複の統合 ④不足タスクの補充 ⑤標準順に整列
+   チェック状態・締め切り・メモ・症例特異的タスクは保持する。 */
+function migrateAll(){
+  if(!confirm("全症例を最新の標準タスク構成に更新します。\nチェック状態・締め切り・症例特異的タスクは保持されます。\nよろしいですか？（先に書き出しでの控えを推奨）")) return;
+  const catByTitle = {}; DEFAULT_TASKS.forEach(d=>catByTitle[d.title]=d.category);
+  const orderIdx = (title)=>{ const i=DEFAULT_TASKS.findIndex(d=>d.title===title); return i<0?999:i; };
+  let touched=0;
+  cases.forEach(c=>{
+    // ①名称変更
+    c.tasks.forEach(t=>{ if(RENAME_MAP[t.title]) t.title=RENAME_MAP[t.title]; });
+    // ②標準タスクはカテゴリを標準に合わせる（custom等は触らない）
+    c.tasks.forEach(t=>{ if(catByTitle[t.title]) t.category=catByTitle[t.title]; });
+    // ③同名タスクの統合（done/締め切り/メモを引き継ぐ）
+    const idxByTitle={}; const merged=[];
+    c.tasks.forEach(t=>{
+      if(idxByTitle[t.title]!==undefined){
+        const ex=merged[idxByTitle[t.title]];
+        ex.done = ex.done || t.done;
+        if(!ex.dueAt && t.dueAt) ex.dueAt=t.dueAt;
+        if(!ex.dueMemo && t.dueMemo) ex.dueMemo=t.dueMemo;
+      } else { idxByTitle[t.title]=merged.length; merged.push(t); }
+    });
+    c.tasks = merged;
+    // ④不足している標準タスクを補充
+    const titles=new Set(c.tasks.map(t=>t.title));
+    DEFAULT_TASKS.forEach(d=>{
+      if(!titles.has(d.title)) c.tasks.push({id:uid("task"),title:d.title,done:false,category:d.category,dueAt:"",dueMemo:""});
+    });
+    // ⑤標準タスクを定義順に整列（標準外は末尾に元の順序で）
+    c.tasks.sort((a,b)=> orderIdx(a.title)-orderIdx(b.title));
+    touch(c); touched++;
+  });
+  save();
+  if(currentCaseId) renderDetail(); else renderList();
+  toast(touched+"件の症例を更新しました");
+}
+
+/* 既存症例に不足している標準タスクを補充（重複は追加しない） */
+function addMissingDefaults(){
+  const c = getCase(currentCaseId);
+  const existing = new Set(c.tasks.map(t=>t.title));
+  let added = 0;
+  DEFAULT_TASKS.forEach(d=>{
+    if(!existing.has(d.title)){
+      c.tasks.push({id:uid("task"), title:d.title, done:false, category:d.category, dueAt:"", dueMemo:""});
+      added++;
+    }
+  });
+  if(added===0){ toast("不足している標準タスクはありません"); return; }
+  touch(c); save(); renderDetail();
+  toast(added+"件の標準タスクを補充しました");
+}
+
+/* ========================= 症例フィールド編集 ========================= */
+function updateField(field, val){
+  const c = getCase(currentCaseId);
+  c[field] = val;
+  touch(c); save();
+}
+function updateCaseDue(part, val){
+  // 症例締め切りは日付のみ（時刻は持たない）
+  const c = getCase(currentCaseId);
+  c.caseDueAt = val ? normalizeDueAt(val, "") : "";
+  touch(c); save(); renderDetail();
+}
+
+/* ========================= 症例追加 ========================= */
+function todayStr(){ const d=new Date(); return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
+function openAddCase(){
+  document.getElementById("ac_date").value = todayStr();
+  document.getElementById("ac_karte").value = "";
+  document.getElementById("ac_owner").value = "";
+  document.getElementById("ac_patient").value = "";
+  document.getElementById("ac_diag").value = "";
+  document.getElementById("ac_dueDate").value = "";
+  document.getElementById("ac_dueTime").value = "";
+  document.getElementById("ac_dueMemo").value = "";
+  openModal("addCaseModal");
+}
+function submitAddCase(){
+  const patient = document.getElementById("ac_patient").value.trim();
+  const owner = document.getElementById("ac_owner").value.trim();
+  if(!patient && !owner){ toast("飼い主名か動物名を入力してください"); return; }
+  const dDate = document.getElementById("ac_dueDate").value;
+  const c = {
+    id:uid("case"),
+    date: document.getElementById("ac_date").value || todayStr(),
+    karteId: document.getElementById("ac_karte").value.trim(),
+    ownerName: owner,
+    patientName: patient,
+    diagnosis: document.getElementById("ac_diag").value.trim(),
+    caseDueAt: dDate ? normalizeDueAt(dDate, "") : "",
+    caseDueMemo: document.getElementById("ac_dueMemo").value.trim(),
+    tasks: makeDefaultTasks(),
+    memo:"", createdAt:nowISO(), updatedAt:nowISO()
+  };
+  cases.push(c);
+  save();
+  closeModal("addCaseModal");
+  showDetail(c.id);
+  toast("症例を追加しました");
+}
+
+/* ========================= 雑メモから追加 ========================= */
+function openMemoModal(){
+  // 年セレクト（現在年±2年）
+  const sel = document.getElementById("memoYear");
+  const y = new Date().getFullYear();
+  sel.innerHTML = "";
+  for(let yy=y+1; yy>=y-3; yy--){
+    const o=document.createElement("option"); o.value=yy; o.textContent=yy+"年"; if(yy===y)o.selected=true; sel.appendChild(o);
+  }
+  document.getElementById("memoText").value = "";
+  openModal("memoModal");
+}
+/* メモ解析ルール（仕様どおり、完璧でなくてよい） */
+const MEMO_RULES = [
+  {kw:"画像取り込みまだ", title:"画像取り込み", category:"common"},
+  {kw:"報告書まだ", title:"報告書作成", category:"common"},
+  {kw:"症例検討会まだ", title:"検討会のスライド下書き", category:"common"},
+  {kw:"報告OKまだ", title:"報告OKをもらう", category:"common"},
+  {kw:"報告OFまだ", title:"報告OKをもらう", category:"common"}, // 表記ゆれ保険
+  {kw:"FAXまだ", title:"FAX送信", category:"afterReportOk"},
+];
+function parseMemoBlock(block, year){
+  const lines = block.split(/\r?\n/).map(s=>s.trim());
+  const nonEmpty = lines.filter(Boolean);
+  if(!nonEmpty.length) return null;
+  // 1行目：日付・飼い主・動物名・疾患名
+  const head = nonEmpty[0];
+  let date="", owner="", patient="", diagnosis="";
+  const dm = head.match(/^(\d{1,2})[\/\-月](\d{1,2})日?\s*/);
+  let rest = head;
+  if(dm){
+    date = year + "-" + pad(+dm[1]) + "-" + pad(+dm[2]);
+    rest = head.slice(dm[0].length).trim();
+  } else {
+    date = todayStr();
+  }
+  const parts = rest.split(/[\s　]+/).filter(Boolean);
+  if(parts[0]) owner = parts[0];
+  if(parts[1]) patient = parts[1];
+  if(parts.length>2) diagnosis = parts.slice(2).join(" ");
+  // タスク判定 ＆ 解析不能行はメモへ
+  const tasks = [];
+  const seen = new Set();
+  const memoLines = [];
+  for(let i=1;i<nonEmpty.length;i++){
+    const line = nonEmpty[i];
+    const rule = MEMO_RULES.find(r=>line.includes(r.kw));
+    if(rule){
+      if(!seen.has(rule.title)){
+        tasks.push({id:uid("task"), title:rule.title, done:false, category:rule.category, dueAt:"", dueMemo:""});
+        seen.add(rule.title);
+      }
+    } else {
+      memoLines.push(line);
+    }
+  }
+  return {
+    id:uid("case"), date, karteId:"", ownerName:owner, patientName:patient, diagnosis,
+    type:"カスタム",  // 雑メモ由来はカスタム（必要なタスクのみ）
+    caseDueAt:"", caseDueMemo:"",
+    tasks, memo:memoLines.join("\n"),
+    createdAt:nowISO(), updatedAt:nowISO()
+  };
+}
+function submitMemo(){
+  const text = document.getElementById("memoText").value;
+  const year = +document.getElementById("memoYear").value;
+  if(!text.trim()){ toast("メモを入力してください"); return; }
+  const blocks = text.split(/\n\s*\n/).map(b=>b.trim()).filter(Boolean);
+  let added=0;
+  blocks.forEach(b=>{
+    const c = parseMemoBlock(b, year);
+    if(c){ cases.push(c); added++; }
+  });
+  save();
+  closeModal("memoModal");
+  showList();
+  toast(added+"件の症例を作成しました");
+}
+
+/* ========================= 削除（確認つき） ========================= */
+let pendingDelete = null;
+function showConfirm(title, text, onOk){
+  document.getElementById("confirmTitle").textContent = title;
+  document.getElementById("confirmText").textContent = text;
+  const btn = document.getElementById("confirmOk");
+  btn.onclick = ()=>{ onOk(); closeModal("confirmModal"); };
+  openModal("confirmModal");
+}
+function confirmDeleteCase(){
+  const c = getCase(currentCaseId);
+  showConfirm("症例を削除", `「${c.ownerName} ${c.patientName}」を削除します。元に戻せません。よろしいですか？`, ()=>{
+    cases = cases.filter(x=>x.id!==currentCaseId);
+    save(); showList(); toast("症例を削除しました");
+  });
+}
+function confirmDeleteTask(taskId){
+  const c = getCase(currentCaseId);
+  const t = c.tasks.find(x=>x.id===taskId);
+  if(!t) return;
+  showConfirm("タスクを削除", `「${t.title}」を削除します。よろしいですか？`, ()=>{
+    c.tasks = c.tasks.filter(x=>x.id!==taskId);
+    touch(c); save(); renderDetail(); toast("タスクを削除しました");
+  });
+}
+
+/* ========================= JSON 入出力 ========================= */
+function openJsonModal(){ document.getElementById("jsonPaste").value=""; openModal("jsonModal"); }
+function exportJson(){ downloadBackup(false); }
+function applyImport(data){
+  if(!Array.isArray(data)) throw new Error("配列ではありません");
+  // 最低限の検証
+  data.forEach(c=>{ if(!c.id) c.id=uid("case"); if(!Array.isArray(c.tasks)) c.tasks=[]; });
+  cases = data;
+  // 取り込んだ直後はファイルと一致しているので未保存扱いにしない
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(cases)); }catch(e){}
+  meta.dirty = false; meta.lastExportAt = Date.now(); saveMeta();
+  closeModal("jsonModal"); closeModal("welcomeModal"); showList(); updateBackupBar();
+  toast("読み込みました（"+cases.length+"件）");
+}
+function importJson(ev){
+  const file = ev.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    try{ applyImport(JSON.parse(e.target.result)); }
+    catch(err){ toast("読み込み失敗：JSONが不正です"); }
+  };
+  reader.readAsText(file);
+  ev.target.value = "";
+}
+function importJsonPaste(){
+  const txt = document.getElementById("jsonPaste").value.trim();
+  if(!txt){ toast("JSONを貼り付けてください"); return; }
+  try{ applyImport(JSON.parse(txt)); }
+  catch(err){ toast("読み込み失敗：JSONが不正です"); }
+}
+
+/* ========================= モーダル・トースト・エスケープ ========================= */
+function openModal(id){ document.getElementById(id).classList.add("open"); }
+function closeModal(id){ document.getElementById(id).classList.remove("open"); }
+let toastTimer=null;
+function toast(msg){
+  const el=document.getElementById("toast");
+  el.textContent=msg; el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>el.classList.remove("show"),1800);
+}
+function esc(s){ return (s==null?"":String(s)).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m])); }
+function attr(s){ return (s==null?"":String(s)).replace(/"/g,"&quot;"); }
+// モーダル背景クリックで閉じる
+document.querySelectorAll(".modal-bg").forEach(bg=>{
+  bg.addEventListener("click",e=>{ if(e.target===bg) bg.classList.remove("open"); });
+});
+
+/* ========================= ようこそ画面の操作 ========================= */
+function welcomeImport(){ document.getElementById("importFile").click(); } // 取り込み成功時に applyImport が welcomeModal も閉じる
+function welcomeSample(){ seedSample(); closeModal("welcomeModal"); renderList(); updateBackupBar(); toast("サンプルで開始しました"); }
+function welcomeEmpty(){ cases=[]; save(); closeModal("welcomeModal"); renderList(); }
+
+/* ========================= 起動 ========================= */
+(function init(){
+  loadMeta();
+  if(load()){
+    renderList();                 // 保存データあり → そのまま表示
+  }else{
+    renderList();                 // データ無しでも勝手にサンプルを入れず…
+    openModal("welcomeModal");     // …まず読み込み/新規開始を選ばせる
+  }
+  appReady = true;                 // ここから自動バックアップ有効
+  updateBackupBar();
+})();
+
+// 未保存の変更があるまま閉じようとしたら警告
+window.addEventListener("beforeunload", (e)=>{
+  if(meta.dirty){ e.preventDefault(); e.returnValue = ""; }
+});
+window.addEventListener("resize", setSidebarTop);
+</script>
+</body>
+</html>
