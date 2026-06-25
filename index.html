@@ -203,6 +203,23 @@
   .toast.show{opacity:1;}
   .hidden{display:none !important;}
   .row-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;}
+  /* ログイン画面 */
+  #loginOverlay{
+    display:none;position:fixed;inset:0;z-index:200;background:var(--bg);
+    align-items:flex-start;justify-content:center;overflow-y:auto;padding:40px 16px;
+  }
+  #loginOverlay.show{display:flex;}
+  .login-card{
+    background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);
+    padding:24px 20px;max-width:380px;width:100%;margin-top:6vh;
+  }
+  .login-card h2{margin:0 0 6px;font-size:20px;}
+  .cloud-state{display:flex;align-items:center;gap:5px;white-space:nowrap;}
+  .cloud-state .cdot{width:8px;height:8px;border-radius:50%;background:var(--ok);}
+  .cloud-state.syncing .cdot{background:var(--warn);}
+  .cloud-state.error .cdot{background:var(--danger);}
+  .cloud-state.offline .cdot{background:var(--sub);}
+  .logout-link{color:var(--accent);cursor:pointer;text-decoration:underline;white-space:nowrap;}
   /* サイドバー（既定は非表示。PC幅＆詳細表示中のみ表示） */
   #caseSidebar{display:none;}
   .side-head{font-size:12px;color:var(--sub);font-weight:700;padding:6px 8px 10px;}
@@ -246,10 +263,12 @@
   </div>
   <div id="backupBar">
     <div class="backup-inner">
+      <span id="cloudState" class="cloud-state hidden"><span class="cdot"></span><span id="cloudStateText">クラウド</span></span>
       <span id="backupStatus">バックアップ済</span>
       <span style="flex:1"></span>
       <label class="auto-toggle"><input type="checkbox" id="autoBackupChk" onchange="toggleAutoBackup(this.checked)">自動保存</label>
       <button class="backup-export" onclick="downloadBackup(false)">書き出し</button>
+      <span id="logoutLink" class="logout-link hidden" onclick="doLogout()">ログアウト</span>
     </div>
   </div>
 </header>
@@ -393,7 +412,42 @@
   </div>
 </div>
 
+<!-- ===== ログイン画面（クラウド有効時のみ表示） ===== -->
+<div id="loginOverlay">
+  <div class="login-card">
+    <h2>症例タスクボード</h2>
+    <p class="hint" id="loginHint">ログインするとデータがクラウドに保存され、ブラウザを消しても残ります。</p>
+    <div class="field-grid" style="margin-top:12px;">
+      <div><label>メールアドレス</label><input type="email" class="field" id="loginEmail" autocomplete="username" placeholder="you@example.com"></div>
+      <div><label>パスワード</label><input type="password" class="field" id="loginPass" autocomplete="current-password" placeholder="6文字以上"></div>
+    </div>
+    <p id="loginError" style="color:var(--danger);font-size:13px;margin:8px 0 0;display:none;"></p>
+    <div class="actions" style="flex-direction:column;gap:10px;margin-top:16px;">
+      <button class="btn primary block" onclick="doLogin()">ログイン</button>
+      <button class="btn block" onclick="doSignup()">新規登録（はじめての方）</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
+
+<!-- Firebase（クラウド保存）SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+<script>
+/* ====== Firebase 設定（ここに自分のプロジェクトの設定を貼り付け） ======
+   未設定のままでも、これまで通り端末内（ローカル）保存で動作します。 */
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDlgg-dmxjqsTyaRUSxjB8G_xoJJVTVwdA",
+  authDomain: "task-board-75d0c.firebaseapp.com",
+  projectId: "task-board-75d0c",
+  storageBucket: "task-board-75d0c.firebasestorage.app",
+  messagingSenderId: "263393750869",
+  appId: "1:263393750869:web:9ce917ec8402bfe7d149dc"
+};
+</script>
 
 <script>
 /* =========================================================================
@@ -612,6 +666,121 @@ const FILTERS = [
   {key:"done", label:"完了"},
 ];
 
+/* ========================= クラウド保存（Firebase） ========================= */
+let db=null, auth=null, currentUser=null, cloudEnabled=false;
+let cloudSaveTimer=null, cloudPending=false;
+
+function cloudConfigured(){
+  return FIREBASE_CONFIG && FIREBASE_CONFIG.apiKey && !FIREBASE_CONFIG.apiKey.startsWith("ここに");
+}
+function setCloudState(state, text){
+  const el=document.getElementById("cloudState"); if(!el) return;
+  el.classList.remove("hidden","syncing","error","offline");
+  if(state) el.classList.add(state);
+  document.getElementById("cloudStateText").textContent = text || "クラウド";
+}
+/* 起動：クラウド設定があればログイン制御、無ければローカル動作 */
+function boot(){
+  loadMeta();
+  if(cloudConfigured()){
+    try{
+      firebase.initializeApp(FIREBASE_CONFIG);
+      auth=firebase.auth(); db=firebase.firestore();
+      cloudEnabled=true;
+      // ログイン状態を維持
+      auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
+      auth.onAuthStateChanged(user=>{
+        currentUser=user;
+        if(user){ hideLogin(); bootCloud(); }
+        else { showLogin(); }
+      });
+      return;
+    }catch(e){ console.error("Firebase初期化失敗", e); cloudEnabled=false; }
+  }
+  bootLocal();   // クラウド未設定 → 従来のローカル動作
+}
+function bootLocal(){
+  if(load()){ renderList(); }
+  else { renderList(); openModal("welcomeModal"); }
+  appReady=true; updateBackupBar();
+}
+async function bootCloud(){
+  setCloudState("syncing","読み込み中…");
+  document.getElementById("logoutLink").classList.remove("hidden");
+  try{
+    const snap = await db.collection("boards").doc(currentUser.uid).get();
+    if(snap.exists && snap.data() && snap.data().data){
+      cases = JSON.parse(snap.data().data);
+      appReady=true; renderList(); updateBackupBar();
+      setCloudState("","同期済み");
+    }else{
+      // 新規アカウント → ようこそ画面
+      cases=[]; appReady=true; renderList(); updateBackupBar();
+      setCloudState("","同期済み");
+      openModal("welcomeModal");
+    }
+  }catch(e){
+    console.error("クラウド読み込み失敗", e);
+    setCloudState("offline","オフライン");
+    // オフライン時はローカルキャッシュで継続
+    if(load()) renderList();
+    appReady=true; updateBackupBar();
+    toast("クラウドに接続できません（ローカル表示）");
+  }
+}
+function scheduleCloudSave(){
+  if(!cloudEnabled || !currentUser) return;
+  cloudPending=true;
+  setCloudState("syncing","同期中…");
+  clearTimeout(cloudSaveTimer);
+  cloudSaveTimer=setTimeout(cloudSaveNow, 700);
+}
+function cloudSaveNow(){
+  if(!cloudEnabled || !currentUser) return;
+  db.collection("boards").doc(currentUser.uid).set({
+    data: JSON.stringify(cases),
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  }).then(()=>{
+    cloudPending=false;
+    const t=new Date();
+    setCloudState("","同期済み "+pad(t.getHours())+":"+pad(t.getMinutes()));
+  }).catch(e=>{ console.error("クラウド保存失敗", e); setCloudState("error","同期エラー（再試行中）"); clearTimeout(cloudSaveTimer); cloudSaveTimer=setTimeout(cloudSaveNow,4000); });
+}
+
+/* ---- ログイン画面・認証 ---- */
+function showLogin(){ document.getElementById("loginOverlay").classList.add("show"); }
+function hideLogin(){ document.getElementById("loginOverlay").classList.remove("show"); }
+function loginErr(msg){ const e=document.getElementById("loginError"); e.textContent=msg; e.style.display=msg?"block":"none"; }
+function authErrMsg(e){
+  const c=(e&&e.code)||"";
+  if(c.includes("invalid-email")) return "メールアドレスの形式が正しくありません。";
+  if(c.includes("missing-password")||c.includes("weak-password")) return "パスワードは6文字以上にしてください。";
+  if(c.includes("email-already-in-use")) return "このメールは登録済みです。「ログイン」を押してください。";
+  if(c.includes("invalid-credential")||c.includes("wrong-password")||c.includes("user-not-found")) return "メールまたはパスワードが違います。";
+  if(c.includes("network")) return "ネットワークに接続できません。";
+  return "エラー: " + (c||(e&&e.message)||"不明");
+}
+function doLogin(){
+  loginErr("");
+  const em=document.getElementById("loginEmail").value.trim();
+  const pw=document.getElementById("loginPass").value;
+  if(!em||!pw){ loginErr("メールとパスワードを入力してください。"); return; }
+  auth.signInWithEmailAndPassword(em,pw).catch(e=>loginErr(authErrMsg(e)));
+}
+function doSignup(){
+  loginErr("");
+  const em=document.getElementById("loginEmail").value.trim();
+  const pw=document.getElementById("loginPass").value;
+  if(!em||!pw){ loginErr("メールとパスワードを入力してください。"); return; }
+  if(pw.length<6){ loginErr("パスワードは6文字以上にしてください。"); return; }
+  auth.createUserWithEmailAndPassword(em,pw).catch(e=>loginErr(authErrMsg(e)));
+}
+function doLogout(){
+  if(!confirm("ログアウトします。データはクラウドに保存済みです。よろしいですか？")) return;
+  // ローカルキャッシュは残さない（別アカウントとの混在防止）
+  auth.signOut().then(()=>{ cases=[]; currentCaseId=null; showList(); });
+}
+
 /* ========================= 永続化・バックアップ ========================= */
 const META_KEY = "caseTaskBoard.meta";
 const AUTO_INTERVAL_MS = 3 * 60 * 1000;   // 自動バックアップの最短間隔（3分）
@@ -629,7 +798,8 @@ function save(){
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(cases)); }
   catch(e){ console.error("保存に失敗", e); toast("保存に失敗しました"); }
   meta.dirty = true; saveMeta();
-  maybeAutoBackup();   // ユーザー操作中なら自動でファイル書き出し（Safari対応）
+  scheduleCloudSave();  // クラウドへ保存（有効時）
+  maybeAutoBackup();    // ユーザー操作中なら自動でファイル書き出し（保険）
   updateBackupBar();
 }
 function load(){
@@ -658,6 +828,7 @@ function downloadBackup(isAuto){
 }
 function maybeAutoBackup(){
   if(!appReady || !meta.autoBackup) return;
+  if(cloudEnabled && currentUser) return;   // クラウド保存中はファイル自動DLしない（控えは手動「書き出し」で可）
   const now = Date.now();
   if(now - (meta.lastAutoAt||0) < AUTO_INTERVAL_MS) return;
   meta.lastAutoAt = now;
@@ -672,6 +843,15 @@ function updateBackupBar(){
   const bar = document.getElementById("backupBar"); if(!bar) return;
   const st = document.getElementById("backupStatus");
   const chk = document.getElementById("autoBackupChk"); if(chk) chk.checked = !!meta.autoBackup;
+  const cloudMode = cloudEnabled && currentUser;
+  const autoLabel = document.querySelector(".auto-toggle");
+  if(autoLabel) autoLabel.style.display = cloudMode ? "none" : "";
+  if(cloudMode){
+    // クラウド保存中は状態を #cloudState に表示。file側のdirty警告は出さない
+    bar.classList.remove("dirty");
+    st.textContent = "";
+    return;
+  }
   if(meta.dirty){
     bar.classList.add("dirty");
     st.textContent = "未保存の変更があります — 書き出しを推奨";
@@ -1375,21 +1555,12 @@ function welcomeSample(){ seedSample(); closeModal("welcomeModal"); renderList()
 function welcomeEmpty(){ cases=[]; save(); closeModal("welcomeModal"); renderList(); }
 
 /* ========================= 起動 ========================= */
-(function init(){
-  loadMeta();
-  if(load()){
-    renderList();                 // 保存データあり → そのまま表示
-  }else{
-    renderList();                 // データ無しでも勝手にサンプルを入れず…
-    openModal("welcomeModal");     // …まず読み込み/新規開始を選ばせる
-  }
-  appReady = true;                 // ここから自動バックアップ有効
-  updateBackupBar();
-})();
+boot();   // クラウド設定があればログイン制御、無ければローカル動作
 
 // 未保存の変更があるまま閉じようとしたら警告
 window.addEventListener("beforeunload", (e)=>{
-  if(meta.dirty){ e.preventDefault(); e.returnValue = ""; }
+  // クラウド保存待ちがある／ローカルで未書き出しの変更がある場合は警告
+  if(cloudPending || (!cloudEnabled && meta.dirty)){ e.preventDefault(); e.returnValue = ""; }
 });
 window.addEventListener("resize", setSidebarTop);
 </script>
